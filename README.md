@@ -50,7 +50,9 @@ Una città che non c'è nel dizionario si aggiunge a `data/citta.csv` e si ricon
 ## File
 
 - `strumenti/analizza_notizie.py`: analisi delle notizie e controllo del CSV (solo libreria standard Python).
-- `strumenti/compila_20nov.py`: la compilazione del 20 novembre 2026, con i testi scritti dopo la lettura delle fonti (esempio di come si costruisce `cortei.csv`).
+- `strumenti/compila_20nov.py`: la compilazione del 20 novembre 2026, con i testi scritti dopo la lettura delle fonti (esempio di come si costruisce `cortei.csv`; non rieseguirlo durante gli aggiornamenti, sovrascriverebbe il CSV).
+- `strumenti/conteggio.py`: scrive `conteggio.md`, le cinque righe con i numeri aggregati, calcolate da `data/cortei.csv`.
+- `strumenti/AGGIORNAMENTO.md`: la procedura dell'aggiornamento orario (20 novembre, fino alle 20).
 - `strumenti/prepara_confini.py`: confini regionali semplificati (`data/regioni.json`) e controllo delle coordinate.
 - `assets/`: stile e funzioni condivise Radar.
 
