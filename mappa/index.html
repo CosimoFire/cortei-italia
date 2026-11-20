@@ -56,7 +56,8 @@
   Promise.all([
     Radar.loadCSV("../data/cortei.csv"),
     Radar.loadCSV("../data/citta.csv"),
-    fetch("../data/regioni.json", { cache: "no-cache" }).then(function (r) { return r.json(); })
+    fetch("../data/regioni.json", { cache: "no-cache" }).then(function (r) { return r.json(); }),
+    document.fonts && document.fonts.ready   // le etichette si misurano con il font giusto
   ]).then(function (res) {
     var coord = {};
     res[1].forEach(function (c) { coord[c.citta] = [Radar.num(c.lon), Radar.num(c.lat)]; });
@@ -121,33 +122,43 @@
         function (s) { s.attr("r", R); },
         function (d, i) { return i * 12; });
 
-      // ---- etichette: città in corso, per priorità, senza sovrapposizioni ----
-      var pallini = dati.map(function (d) { return [d.x - R, d.y - R, d.x + R, d.y + R]; }), occupati = [];
-      function vuoto(b, lista) { return lista.every(function (o) { return b[2] < o[0] || b[0] > o[2] || b[3] < o[1] || b[1] > o[3]; }); }
-      // le città della lista PRIORITA possono coprire un pallino vicino, mai un'altra etichetta
-      function libero(b, top) {
+      // ---- etichette: per priorità, senza coprire pallini né altre etichette ----
+      var M = 2;   // margine attorno a pallini (con il loro bordo) ed etichette
+      var occupati = dati.map(function (d) { return [d.x - R - M, d.y - R - M, d.x + R + M, d.y + R + M]; });
+      function libero(b) {
         if (b[0] < 0 || b[2] > W || b[1] < 0 || b[3] > H) return false;
-        return vuoto(b, occupati) && (top || vuoto(b, pallini));
+        return occupati.every(function (o) { return b[2] < o[0] || b[0] > o[2] || b[3] < o[1] || b[1] > o[3]; });
       }
-      var fs = narrow ? 11 : 12, cw = fs * 0.56;
+      var fs = narrow ? 11 : 12;
+      // larghezza vera del testo, misurata con il font della pagina
+      var misura = svg.append("text").attr("class", "etichetta" + (narrow ? " etichetta--min" : "")).style("visibility", "hidden");
+      function larghezza(s) { misura.text(s); return misura.node().getComputedTextLength(); }
       var candidati = dati.slice().sort(function (a, b) {
         var pa = PRIORITA.indexOf(a.citta), pb = PRIORITA.indexOf(b.citta);
         return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
       });
-      var maxEt = narrow ? 9 : 22, et = [];
+      var maxEt = narrow ? 10 : 24, et = [];
       candidati.forEach(function (d) {
         if (et.length >= maxEt) return;
-        var w = nome(d.citta).length * cw + 2, h = fs;
+        var w = larghezza(nome(d.citta)), h = fs, g = R + 3, k = R * 0.7 + 2;
         var pos = [
-          { x: d.x + R + 4, y: d.y + h * 0.35, a: "start", b: [d.x + R + 3, d.y - h / 2, d.x + R + 5 + w, d.y + h / 2] },
-          { x: d.x - R - 4, y: d.y + h * 0.35, a: "end", b: [d.x - R - 5 - w, d.y - h / 2, d.x - R - 3, d.y + h / 2] },
-          { x: d.x, y: d.y - R - 4, a: "middle", b: [d.x - w / 2, d.y - R - 4 - h, d.x + w / 2, d.y - R - 3] },
-          { x: d.x, y: d.y + R + h + 1, a: "middle", b: [d.x - w / 2, d.y + R + 2, d.x + w / 2, d.y + R + h + 3] }
+          { x: d.x + g, y: d.y + h * 0.35, a: "start", b: [d.x + g, d.y - h / 2, d.x + g + w, d.y + h / 2] },
+          { x: d.x - g, y: d.y + h * 0.35, a: "end", b: [d.x - g - w, d.y - h / 2, d.x - g, d.y + h / 2] },
+          { x: d.x, y: d.y - g - 2, a: "middle", b: [d.x - w / 2, d.y - g - h, d.x + w / 2, d.y - g] },
+          { x: d.x, y: d.y + g + h - 2, a: "middle", b: [d.x - w / 2, d.y + g, d.x + w / 2, d.y + g + h] },
+          { x: d.x + k, y: d.y - k - 2, a: "start", b: [d.x + k, d.y - k - h, d.x + k + w, d.y - k] },
+          { x: d.x + k, y: d.y + k + h - 2, a: "start", b: [d.x + k, d.y + k, d.x + k + w, d.y + k + h] },
+          { x: d.x - k, y: d.y - k - 2, a: "end", b: [d.x - k - w, d.y - k - h, d.x - k, d.y - k] },
+          { x: d.x - k, y: d.y + k + h - 2, a: "end", b: [d.x - k - w, d.y + k, d.x - k, d.y + k + h] }
         ];
         for (var i = 0; i < pos.length; i++) {
-          if (libero(pos[i].b, PRIORITA.indexOf(d.citta) > -1)) { occupati.push(pos[i].b); et.push({ d: d, p: pos[i] }); return; }
+          if (libero(pos[i].b)) {
+            var b = pos[i].b; occupati.push([b[0] - M, b[1] - M, b[2] + M, b[3] + M]);
+            et.push({ d: d, p: pos[i] }); return;
+          }
         }
       });
+      misura.remove();
       var etichette = svg.selectAll("g.etichette").data([0]).join("g").attr("class", "etichette")
         .selectAll("text").data(et, function (e) { return e.d.citta; }).join("text")
         .attr("class", "etichetta" + (narrow ? " etichetta--min" : ""))
