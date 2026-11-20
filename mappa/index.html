@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sciopero generale, i cortei in Italia – Radar QN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/radar.css">
+<style>
+  .r-tip { max-width: 300px; }
+  .r-tip__stato { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 6px; color: var(--ink-2); }
+  .r-tip__stato.is-live { color: var(--blue); }
+  .r-tip ul { margin: 0; padding: 0; list-style: none; }
+  .r-tip li { position: relative; padding-left: 11px; margin: 0 0 6px; }
+  .r-tip li:last-child { margin-bottom: 0; }
+  .r-tip li::before { content: ""; position: absolute; left: 0; top: .55em; width: 4px; height: 4px; border-radius: 50%; background: var(--ink-2); }
+  .regione { stroke: var(--bg); stroke-width: .8; }
+  .citta { cursor: pointer; transition: opacity 180ms ease; }
+  .etichetta { font-size: 12px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 3.5px; stroke-linejoin: round; pointer-events: none; transition: opacity 180ms ease; }
+  .etichetta--min { font-size: 11px; }
+  .sw--pieno { border-radius: 50%; background: var(--blue); }
+</style>
+</head>
+<body>
+<main class="radar">
+  <header>
+    <h1 class="r-title">Sciopero generale, cortei e presìdi da Aosta a Reggio Calabria</h1>
+    <p class="r-sub">Le manifestazioni del 20 novembre contro la legge di Bilancio segnalate dalle cronache. Passa sopra una città, o toccala, per leggere che cosa sta succedendo.</p>
+  </header>
+
+  <div class="r-key" aria-hidden="true">
+    <span><i class="sw sw--pieno"></i>In corso</span>
+    <span><i class="sw sw--ring"></i>Annunciata, senza notizie sullo svolgimento</span>
+  </div>
+
+  <figure class="r-chart" id="mappa" style="margin-top:12px"></figure>
+  <ul class="sr-only" id="elenco"></ul>
+
+  <p class="r-note" id="nota">La mappa riporta le città in cui le cronache segnalano cortei e presìdi: non è l'elenco completo delle piazze dello sciopero.</p>
+
+  <footer class="r-foot">
+    <span>Fonte: notizie di agenzia e di stampa</span>
+    <span>Elaborazione Radar – QN</span>
+  </footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../assets/radar.js"></script>
+<script>
+(function () {
+  "use strict";
+  var box = document.getElementById("mappa");
+
+  // città sempre da etichettare per prime, se il corteo è in corso (ordine = priorità)
+  var PRIORITA = ["Roma", "Milano", "Napoli", "Torino", "Palermo", "Bologna", "Genova", "Bari", "Firenze",
+    "Cagliari", "Perugia", "Aosta", "Trento", "Potenza", "Reggio Calabria", "L'Aquila", "Padova", "Brescia"];
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+  }
+
+  Promise.all([
+    Radar.loadCSV("../data/cortei.csv"),
+    Radar.loadCSV("../data/citta.csv"),
+    fetch("../data/regioni.json", { cache: "no-cache" }).then(function (r) { return r.json(); })
+  ]).then(function (res) {
+    var coord = {};
+    res[1].forEach(function (c) { coord[c.citta] = [Radar.num(c.lon), Radar.num(c.lat)]; });
+    var regioni = res[2];
+
+    var dati = res[0].map(function (r) {
+      var c = coord[r.citta];
+      if (!c) { console.warn("Città senza coordinate:", r.citta); return null; }
+      var m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/.exec(r.aggiornato);
+      return {
+        citta: r.citta,
+        live: r.stato === "in corso",
+        stato: r.stato,
+        eventi: r.avvenimenti.split("|").map(function (s) { return s.trim(); }).filter(Boolean),
+        fonti: r.fonti,
+        quando: m ? new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]) : null,
+        lonlat: c
+      };
+    }).filter(Boolean);
+    // i pallini "in corso" sopra quelli annunciati
+    dati.sort(function (a, b) { return a.live - b.live || b.lonlat[1] - a.lonlat[1]; });
+
+    // elenco per lettori di schermo
+    d3.select("#elenco").selectAll("li").data(dati.slice().sort(function (a, b) { return b.live - a.live || a.citta.localeCompare(b.citta); }))
+      .join("li").text(function (d) { return d.citta + ", " + d.stato + ": " + d.eventi.join(". ") + "."; });
+
+    var tip = Radar.tooltip(box);
+
+    function tipHTML(d) {
+      return '<div class="r-tip__t">' + esc(nome(d.citta)) + "</div>" +
+        '<div class="r-tip__stato' + (d.live ? " is-live" : "") + '">' + (d.live ? "In corso" : "Annunciata") + "</div>" +
+        "<ul>" + d.eventi.map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + "</ul>";
+    }
+    function nome(c) { return c === "Mestre" ? "Venezia-Mestre" : c; }
+
+    Radar.responsive(box, function (W, phase) {
+      var narrow = Radar.isNarrow(W);
+      var pad = narrow ? 4 : 10;
+      var proj = d3.geoConicConformal().parallels([38, 46]).rotate([-12.5, 0]).fitWidth(W - 2 * pad, regioni);
+      var path = d3.geoPath(proj);
+      var bb = path.bounds(regioni), tr = proj.translate();
+      proj.translate([tr[0] + pad - bb[0][0], tr[1] + 6 - bb[0][1]]);
+      var H = Math.ceil(bb[1][1] - bb[0][1] + 12);   // altezza presa dalla forma dell'Italia
+      dati.forEach(function (d) { var p = proj(d.lonlat); d.x = p[0]; d.y = p[1]; });
+      var R = narrow ? 3.6 : 4.6;
+
+      var svg = d3.select(box).selectAll("svg").data([0]).join("svg")
+        .attr("width", W).attr("height", H).attr("viewBox", "0 0 " + W + " " + H)
+        .attr("role", "img")
+        .attr("aria-label", "Mappa delle città con cortei e presìdi per lo sciopero generale, in corso o annunciati. L'elenco delle città segue la mappa.");
+      svg.selectAll("title").data([0]).join("title").text("Cortei e presìdi per lo sciopero generale del 20 novembre");
+
+      svg.selectAll("g.regioni").data([0]).join("g").attr("class", "regioni")
+        .selectAll("path").data(regioni.features).join("path")
+        .attr("class", "regione").attr("d", path).style("fill", "var(--rule)");
+
+      var gP = svg.selectAll("g.punti").data([0]).join("g").attr("class", "punti");
+      var punti = gP.selectAll("circle").data(dati, function (d) { return d.citta; }).join("circle")
+        .attr("class", "citta mark").attr("cx", function (d) { return d.x; }).attr("cy", function (d) { return d.y; })
+        .style("fill", function (d) { return d.live ? "var(--blue)" : "var(--bg)"; })
+        .style("stroke", function (d) { return d.live ? "var(--bg)" : "var(--blue)"; })
+        .style("stroke-width", function (d) { return d.live ? 1 : 1.6; });
+      Radar.enter(punti, phase,
+        function (s) { s.attr("r", 0); },
+        function (s) { s.attr("r", R); },
+        function (d, i) { return i * 12; });
+
+      // ---- etichette: città in corso, per priorità, senza sovrapposizioni ----
+      var pallini = dati.map(function (d) { return [d.x - R, d.y - R, d.x + R, d.y + R]; }), occupati = [];
+      function vuoto(b, lista) { return lista.every(function (o) { return b[2] < o[0] || b[0] > o[2] || b[3] < o[1] || b[1] > o[3]; }); }
+      // le prime città della lista possono coprire un pallino vicino, mai un'altra etichetta
+      function libero(b, top) {
+        if (b[0] < 0 || b[2] > W || b[1] < 0 || b[3] > H) return false;
+        return vuoto(b, occupati) && (top || vuoto(b, pallini));
+      }
+      var fs = narrow ? 11 : 12, cw = fs * 0.56;
+      var candidati = dati.filter(function (d) { return d.live; }).sort(function (a, b) {
+        var pa = PRIORITA.indexOf(a.citta), pb = PRIORITA.indexOf(b.citta);
+        return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
+      });
+      var maxEt = narrow ? 9 : 22, et = [];
+      candidati.forEach(function (d) {
+        if (et.length >= maxEt) return;
+        var w = nome(d.citta).length * cw + 2, h = fs;
+        var pos = [
+          { x: d.x + R + 4, y: d.y + h * 0.35, a: "start", b: [d.x + R + 3, d.y - h / 2, d.x + R + 5 + w, d.y + h / 2] },
+          { x: d.x - R - 4, y: d.y + h * 0.35, a: "end", b: [d.x - R - 5 - w, d.y - h / 2, d.x - R - 3, d.y + h / 2] },
+          { x: d.x, y: d.y - R - 4, a: "middle", b: [d.x - w / 2, d.y - R - 4 - h, d.x + w / 2, d.y - R - 3] },
+          { x: d.x, y: d.y + R + h + 1, a: "middle", b: [d.x - w / 2, d.y + R + 2, d.x + w / 2, d.y + R + h + 3] }
+        ];
+        for (var i = 0; i < pos.length; i++) {
+          if (libero(pos[i].b, PRIORITA.indexOf(d.citta) > -1 && PRIORITA.indexOf(d.citta) < 4)) { occupati.push(pos[i].b); et.push({ d: d, p: pos[i] }); return; }
+        }
+      });
+      var etichette = svg.selectAll("g.etichette").data([0]).join("g").attr("class", "etichette")
+        .selectAll("text").data(et, function (e) { return e.d.citta; }).join("text")
+        .attr("class", "etichetta" + (narrow ? " etichetta--min" : ""))
+        .attr("x", function (e) { return e.p.x; }).attr("y", function (e) { return e.p.y; })
+        .attr("text-anchor", function (e) { return e.p.a; })
+        .text(function (e) { return nome(e.d.citta); });
+      Radar.enter(etichette, phase,
+        function (s) { s.style("opacity", 0); },
+        function (s) { s.style("opacity", 1); }, 350);
+
+      // ---- interazione: il punto più vicino al puntatore ----
+      var dl = d3.Delaunay.from(dati, function (d) { return d.x; }, function (d) { return d.y; });
+      var attivo = null;
+      function evidenzia(d) {
+        attivo = d;
+        punti.classed("is-dimmed", function (p) { return d && p !== d; })
+          .attr("r", function (p) { return d && p === d ? R + 2 : R; });
+        etichette.classed("is-dimmed", function (e) { return d && e.d !== d; });
+        if (d) d3.select(punti.nodes()[dati.indexOf(d)]).raise();
+      }
+      function muovi(ev) {
+        var m = d3.pointer(ev, svg.node());
+        var i = dl.find(m[0], m[1]), d = dati[i];
+        var dist = Math.hypot(d.x - m[0], d.y - m[1]);
+        if (dist > (ev.pointerType === "touch" ? 30 : 22)) { esci(); return; }
+        if (d !== attivo) { evidenzia(d); tip.show(tipHTML(d), d.x, d.y); }
+      }
+      function esci() { if (attivo) { evidenzia(null); tip.hide(); } }
+      svg.on("pointermove", muovi).on("pointerdown", muovi).on("pointerleave", function (ev) { if (ev.pointerType !== "touch") esci(); });
+      Radar.dismissOutside(box, esci);
+    });
+  }).catch(function (e) { Radar.fail(box, e); });
+})();
+</script>
+</body>
+</html>
